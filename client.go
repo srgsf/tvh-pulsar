@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -156,6 +157,9 @@ func validateChannels(chs ...uint) error {
 		if ch == 0 {
 			return fmt.Errorf("channel must be non-zero")
 		}
+		if ch > maxChanNum {
+			return fmt.Errorf("maximum %d channels is supported", maxChanNum)
+		}
 	}
 	return nil
 }
@@ -184,6 +188,9 @@ func (c *Client) CurValues(chs ...uint) (retVal []Channel, err error) {
 	}
 
 	b := bytes.NewBuffer(data)
+	if len(chs) > 1 {
+		sort.Slice(chs, func(i, j int) bool { return chs[i] < chs[j] })
+	}
 	var val float64
 	for _, ch := range chs {
 		if err = binary.Read(b, binary.LittleEndian, &val); err != nil {
@@ -236,6 +243,9 @@ func (c *Client) PulseWeight(chs ...uint) (p []PulseWeight, err error) {
 	}
 
 	b := bytes.NewBuffer(data)
+	if len(chs) > 1 {
+		sort.Slice(chs, func(i, j int) bool { return chs[i] < chs[j] })
+	}
 	var val float32
 	for _, ch := range chs {
 		if err = binary.Read(b, binary.LittleEndian, &val); err != nil {

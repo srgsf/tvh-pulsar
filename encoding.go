@@ -10,6 +10,9 @@ import (
 // minimal message length that can be parsed.
 const minFrameLen = 10
 
+// max channels possible
+const maxChanNum = 16
+
 // successful result of system time writing operation.
 const writeOK byte = 0x01
 

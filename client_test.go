@@ -138,6 +138,30 @@ func TestCurValues(t *testing.T) {
 	checkRequest(t, req, exp)
 }
 
+func TestCurValuesSort(t *testing.T) {
+	c, cl := createMockClient(t)
+	var resp = []byte{
+		0x01, 0x02, 0x03, 0x04, 0x01, 0x1A, 0x68, 0x11,
+		0xCF, 0xCE, 0xF7, 0x96, 0x85, 0x40, 0xA0, 0x1A,
+		0x8A, 0x43, 0x8B, 0xE0, 0x7C, 0x40, 0x00, 0x01}
+	c.rBuf.Write(resp)
+	c.rBuf.Write(generateCRC(resp))
+	v, err := cl.CurValues(2, 1)
+	if err != nil {
+		t.Error(err)
+	}
+	if v[0].Id != 1 || v[1].Id != 2 {
+		t.Error("response decoding failed, Id field.")
+	}
+	if fmt.Sprintf("%.2f", v[0].Value) != "690.87" ||
+		fmt.Sprintf("%.2f", v[1].Value) != "462.03" {
+		t.Error("response decoding failed, Value field.")
+	}
+	var exp = []byte{0x01, 0x02, 0x03, 0x04, 0x01, 0x0E, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01, 0xBF, 0x49}
+	var req = c.wBuf.Bytes()
+	checkRequest(t, req, exp)
+}
+
 func TestSetCurValues(t *testing.T) {
 	c, cl := createMockClient(t)
 	var resp = []byte{
@@ -165,6 +189,29 @@ func TestPulseWeight(t *testing.T) {
 	c.rBuf.Write(resp)
 	c.rBuf.Write(generateCRC(resp))
 	v, err := cl.PulseWeight(1, 2)
+	if err != nil {
+		t.Error(err)
+	}
+	if v[0].Id != 1 || v[1].Id != 2 {
+		t.Error("response decoding failed, Id field.")
+	}
+	if fmt.Sprintf("%.2f", v[0].Value) != "0.01" ||
+		fmt.Sprintf("%.2f", v[1].Value) != "0.01" {
+		t.Error("response decoding failed, Value field.")
+	}
+	var exp = []byte{
+		0x01, 0x02, 0x03, 0x04, 0x07, 0x0E, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01, 0x3F, 0x63}
+	var req = c.wBuf.Bytes()
+	checkRequest(t, req, exp)
+}
+
+func TestPulseWeightSort(t *testing.T) {
+	c, cl := createMockClient(t)
+	var resp = []byte{
+		0x01, 0x02, 0x03, 0x04, 0x07, 0x12, 0x0A, 0xD7, 0x23, 0x3C, 0x0A, 0xD7, 0x23, 0x3C, 0x00, 0x01}
+	c.rBuf.Write(resp)
+	c.rBuf.Write(generateCRC(resp))
+	v, err := cl.PulseWeight(2, 1)
 	if err != nil {
 		t.Error(err)
 	}
