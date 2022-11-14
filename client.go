@@ -415,7 +415,7 @@ func (c *Client) SerialConfig() (SerialConfig, error) {
 	var value SerialConfig
 	rv, err := c.param(serial)
 	if err != nil {
-		return value, nil
+		return value, err
 	}
 	value = SerialConfig(rv[0])
 	return value, nil
