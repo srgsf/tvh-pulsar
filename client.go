@@ -14,7 +14,7 @@ import (
 // Client is a Pulsar network client handler that communicates with a device using pulsar data transmission protocol.
 type Client struct {
 	// network connection
-	conn *Conn
+	conn Conn
 	// device address
 	address uint32
 	// message id generator. Holds next message id value.
@@ -22,37 +22,36 @@ type Client struct {
 }
 
 // Discover searches for pulsar meters in a local network and initialises Client if device is found.
-func Discover(conn *Conn) (c *Client, err error) {
+func Discover(conn Conn) (*Client, error) {
 	if conn == nil {
-		err = fmt.Errorf("connection is required")
-		return
+		return nil, fmt.Errorf("connection is required")
 	}
 
-	if err = conn.prepareWrite(); err != nil {
-		return
+	if err := conn.PrepareWrite(); err != nil {
+		return nil, err
 	}
-	if _, err = conn.write(discoveryMessage); err != nil {
-		return
-	}
-
-	if err = conn.flush(); err != nil {
-		return
+	if _, err := conn.Write(discoveryMessage); err != nil {
+		return nil, err
 	}
 
-	conn.logRequest()
+	if err := conn.Flush(); err != nil {
+		return nil, err
+	}
 
-	if err = conn.prepareRead(); err != nil {
-		return
+	conn.LogRequest()
+
+	if err := conn.PrepareRead(); err != nil {
+		return nil, err
 	}
 	response := make([]byte, minFrameLen)
-	if _, err = conn.read(response); err != nil {
-		return
+	if _, err := conn.Read(response); err != nil {
+		return nil, err
 	}
 
-	conn.logResponse()
+	conn.LogResponse()
 
-	if err = checkCrc(response); err != nil {
-		return
+	if err := checkCrc(response); err != nil {
+		return nil, err
 	}
 	response = response[4:8]
 
@@ -62,18 +61,21 @@ func Discover(conn *Conn) (c *Client, err error) {
 }
 
 // NewClient creates a Client.
-func NewClient(address string, conn *Conn) (c *Client, err error) {
+func NewClient(address string, conn Conn) (*Client, error) {
 	i, err := strconv.ParseInt(address, 16, 32)
 	if err != nil {
-		return
+		return nil, err
 	}
-
-	c = &Client{
+	return &Client{
 		conn:    conn,
 		address: uint32(i),
 		ids:     math.MaxUint32,
-	}
-	return
+	}, nil
+}
+
+// Resets the connection for a client.
+func (c *Client) Reset(conn Conn) {
+	c.conn = conn
 }
 
 // Address returns device's network address.
@@ -82,55 +84,54 @@ func (c *Client) Address() uint32 {
 }
 
 // Model retrieves model id from a device. (No documentation is found for device id decoding)
-func (c *Client) Model() (m uint16, err error) {
+func (c *Client) Model() (uint16, error) {
 	request := make([]byte, 9)
 	binary.BigEndian.PutUint32(request, c.address)
 	copy(request[4:], discoveryModel)
-	if err = c.conn.prepareWrite(); err != nil {
-		return
+	if err := c.conn.PrepareWrite(); err != nil {
+		return 0, err
 	}
 
-	if err = c.writeMessage(request); err != nil {
-		return
+	if err := c.writeMessage(request); err != nil {
+		return 0, err
 	}
 
 	for {
-		if err = c.conn.prepareRead(); err != nil {
-			return
+		if err := c.conn.PrepareRead(); err != nil {
+			return 0, err
 		}
 
 		response := make([]byte, minFrameLen)
-		if _, err = c.conn.read(response); err != nil {
-			return
+		if _, err := c.conn.Read(response); err != nil {
+			return 0, err
 		}
 
 		if c.address != binary.BigEndian.Uint32(response) {
 			continue
 		}
 
-		c.conn.logResponse()
-		if err = checkCrc(response); err != nil {
-			return
+		c.conn.LogResponse()
+		if err := checkCrc(response); err != nil {
+			return 0, err
 		}
-		m = binary.BigEndian.Uint16(response[6:8])
-		return
+		return binary.BigEndian.Uint16(response[6:8]), nil
 	}
 }
 
 // SysTime retrieves device's system time.
-func (c *Client) SysTime() (rv time.Time, err error) {
+func (c *Client) SysTime() (time.Time, error) {
 	data, err := c.command(fnReadSysTime, func() []byte {
 		return nil
 	})
+	var st time.Time
 	if err != nil {
-		return
+		return st, err
 	}
 	var t sysTime
 	if err = t.UnmarshalBinary(data); err != nil {
-		return
+		return st, err
 	}
-	rv = time.Time(t)
-	return
+	return time.Time(t), nil
 }
 
 // SetSysTime updates system time of the device.
@@ -144,7 +145,7 @@ func (c *Client) SetSysTime(t time.Time) error {
 		return err
 	}
 	if data[0] != writeOK {
-		return WriteFail
+		return ErrWriteFail
 	}
 	return nil
 }
@@ -173,9 +174,9 @@ func makeMask(chs ...uint) uint32 {
 }
 
 // CurValues retrieves current values for channels. At least 1 channel number must be provided.
-func (c *Client) CurValues(chs ...uint) (retVal []Channel, err error) {
-	if err = validateChannels(chs...); err != nil {
-		return
+func (c *Client) CurValues(chs ...uint) ([]Channel, error) {
+	if err := validateChannels(chs...); err != nil {
+		return nil, err
 	}
 	mask := makeMask(chs...)
 	data, err := c.command(fnReadValues, func() []byte {
@@ -184,7 +185,7 @@ func (c *Client) CurValues(chs ...uint) (retVal []Channel, err error) {
 		return rv
 	})
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	b := bytes.NewBuffer(data)
@@ -192,16 +193,17 @@ func (c *Client) CurValues(chs ...uint) (retVal []Channel, err error) {
 		sort.Slice(chs, func(i, j int) bool { return chs[i] < chs[j] })
 	}
 	var val float64
+	var retVal []Channel
 	for _, ch := range chs {
 		if err = binary.Read(b, binary.LittleEndian, &val); err != nil {
-			return
+			return nil, err
 		}
 		retVal = append(retVal, Channel{
 			Id:    ch,
 			Value: val,
 		})
 	}
-	return
+	return retVal, nil
 }
 
 // SetCurValue updates current value for a channel.
@@ -227,9 +229,9 @@ func (c *Client) SetCurValue(ch uint, val float64) error {
 }
 
 // PulseWeight retrieves pulse weights for channels. At least 1 channel number must be provided.
-func (c *Client) PulseWeight(chs ...uint) (p []PulseWeight, err error) {
-	if err = validateChannels(chs...); err != nil {
-		return
+func (c *Client) PulseWeight(chs ...uint) ([]PulseWeight, error) {
+	if err := validateChannels(chs...); err != nil {
+		return nil, err
 	}
 
 	data, err := c.command(fnReadPulseWeight, func() []byte {
@@ -239,7 +241,7 @@ func (c *Client) PulseWeight(chs ...uint) (p []PulseWeight, err error) {
 		return rv
 	})
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	b := bytes.NewBuffer(data)
@@ -247,16 +249,17 @@ func (c *Client) PulseWeight(chs ...uint) (p []PulseWeight, err error) {
 		sort.Slice(chs, func(i, j int) bool { return chs[i] < chs[j] })
 	}
 	var val float32
+	var p []PulseWeight
 	for _, ch := range chs {
 		if err = binary.Read(b, binary.LittleEndian, &val); err != nil {
-			return
+			return nil, err
 		}
 		p = append(p, PulseWeight{
 			Id:    ch,
 			Value: val,
 		})
 	}
-	return
+	return p, nil
 }
 
 // SetPulseWeight updates pulse weight for a channel.
@@ -282,13 +285,12 @@ func (c *Client) SetPulseWeight(ch uint, val float32) error {
 }
 
 // Common function that retrieves configuration parameter's value.
-func (c *Client) param(name configParam) (value []byte, err error) {
-	value, err = c.command(fnReadSettings, func() []byte {
+func (c *Client) param(name configParam) ([]byte, error) {
+	return c.command(fnReadSettings, func() []byte {
 		rv := make([]byte, 2)
 		binary.LittleEndian.PutUint16(rv, uint16(name))
 		return rv
 	})
-	return
 }
 
 // Common function to update configuration parameter's value.
@@ -312,13 +314,14 @@ func (c *Client) setParam(name configParam, value []byte) error {
 
 // DayLightSaving queries device if daylight saving enabled.
 // Returns true if enabled.
-func (c *Client) DayLightSaving() (value bool, err error) {
+func (c *Client) DayLightSaving() (bool, error) {
 	data, err := c.param(dayTimeSave)
 	rv := binary.LittleEndian.Uint64(data) & 0xFFFF
+	var value bool
 	if err != nil && rv != 0 {
 		value = true
 	}
-	return
+	return value, err
 }
 
 // SetDayLightSaving sets newValue as daylight saving param.
@@ -334,14 +337,15 @@ func (c *Client) SetDayLightSaving(newValue bool) error {
 }
 
 // PulseLength retrieves pulse length param value.
-func (c *Client) PulseLength() (value float32, err error) {
+func (c *Client) PulseLength() (float32, error) {
 	rv, err := c.param(pulseLength)
 	if err != nil {
-		return
+		return 0., err
 	}
 	b := bytes.NewReader(rv)
+	var value float32
 	err = binary.Read(b, binary.LittleEndian, &value)
-	return
+	return value, err
 }
 
 // SetPulseLength updates pulse length param value.
@@ -352,14 +356,15 @@ func (c *Client) SetPulseLength(newValue float32) error {
 }
 
 // PauseLength retrieves pause length param value.
-func (c *Client) PauseLength() (value float32, err error) {
+func (c *Client) PauseLength() (float32, error) {
 	rv, err := c.param(pauseLength)
 	if err != nil {
-		return
+		return 0., err
 	}
 	b := bytes.NewReader(rv)
+	var value float32
 	err = binary.Read(b, binary.LittleEndian, &value)
-	return
+	return value, err
 }
 
 // SetPauseLength updates pause length param value.
@@ -370,34 +375,31 @@ func (c *Client) SetPauseLength(newValue float32) error {
 }
 
 // FirmwareVersion retrieves current firmware version of a device.
-func (c *Client) FirmwareVersion() (value uint16, err error) {
+func (c *Client) FirmwareVersion() (uint16, error) {
 	rv, err := c.param(firmwareVer)
 	if err != nil {
-		return
+		return 0, err
 	}
-	value = binary.LittleEndian.Uint16(rv)
-	return
+	return binary.LittleEndian.Uint16(rv), nil
 }
 
 // DiagnosticsFlags retrieves self-check results.
 // 0x04 means EEPROM write error, 0x08 - negative current value in a channel.
-func (c *Client) DiagnosticsFlags() (value uint8, err error) {
+func (c *Client) DiagnosticsFlags() (uint8, error) {
 	rv, err := c.param(health)
 	if err != nil {
-		return
+		return 0, err
 	}
-	value = rv[0]
-	return
+	return rv[0], nil
 }
 
 // SerialSpeed returns serial line speed configuration.
-func (c *Client) SerialSpeed() (value uint32, err error) {
+func (c *Client) SerialSpeed() (uint32, error) {
 	rv, err := c.param(speed)
 	if err != nil {
-		return
+		return 0, err
 	}
-	value = binary.LittleEndian.Uint32(rv)
-	return
+	return binary.LittleEndian.Uint32(rv), nil
 }
 
 // SetSerialSpeed updates device serial line communication speed.
@@ -409,13 +411,14 @@ func (c *Client) SetSerialSpeed(newValue uint32) error {
 }
 
 // SerialConfig retrieves encoded serial line communication parameters.
-func (c *Client) SerialConfig() (value SerialConfig, err error) {
+func (c *Client) SerialConfig() (SerialConfig, error) {
+	var value SerialConfig
 	rv, err := c.param(serial)
 	if err != nil {
-		return
+		return value, nil
 	}
 	value = SerialConfig(rv[0])
-	return
+	return value, nil
 }
 
 // SetSerialConfig updates serial line communication parameters.
@@ -426,19 +429,19 @@ func (c *Client) SetSerialConfig(newValue SerialConfig) error {
 }
 
 // common function for archive retrieval.
-func (c *Client) valuesLog(arch ArchType, ch uint, from, to sysTime) (chl *ChannelLog, err error) {
+func (c *Client) valuesLog(arch ArchType, ch uint, from, to sysTime) (*ChannelLog, error) {
 	if ch == 0 {
 		return nil, fmt.Errorf("channel must be non-zero")
 	}
 	mask := uint32(1 << (ch - 1))
 	tmStart, err := from.MarshalBinary()
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	tmEnd, err := to.MarshalBinary()
 	if err != nil {
-		return
+		return nil, err
 	}
 	data, err := c.command(fnReadArchive, func() []byte {
 		var b bytes.Buffer
@@ -450,55 +453,55 @@ func (c *Client) valuesLog(arch ArchType, ch uint, from, to sysTime) (chl *Chann
 	})
 
 	if err != nil {
-		return
+		return nil, err
 	}
-	chl = &ChannelLog{}
+	chl := &ChannelLog{}
 	err = chl.UnmarshalBinary(data)
-	return
+	return chl, err
 }
 
 // HourlyLog retrieves hourly archive from device.
-func (c *Client) HourlyLog(ch uint, from, to time.Time) (l *ChannelLog, err error) {
+func (c *Client) HourlyLog(ch uint, from, to time.Time) (*ChannelLog, error) {
 	start := sysTime(time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), 0, 0, 0, from.Location()))
 	end := sysTime(time.Date(to.Year(), to.Month(), to.Day(), to.Hour(), 0, 0, 0, to.Location()))
-	l, err = c.valuesLog(Hourly, ch, start, end)
+	l, err := c.valuesLog(Hourly, ch, start, end)
 	if err != nil {
-		return
+		return nil, err
 	}
 	l.Type = Hourly
-	return
+	return l, nil
 }
 
 // DailyLog retrieves daily archive from device.
-func (c *Client) DailyLog(ch uint, from, to time.Time) (l *ChannelLog, err error) {
+func (c *Client) DailyLog(ch uint, from, to time.Time) (*ChannelLog, error) {
 	start := sysTime(time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, from.Location()))
 	end := sysTime(time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, to.Location()))
-	l, err = c.valuesLog(Daily, ch, start, end)
+	l, err := c.valuesLog(Daily, ch, start, end)
 	if err != nil {
-		return
+		return nil, err
 	}
 	l.Type = Daily
-	return
+	return l, nil
 }
 
 // MonthlyLog retrieves monthly archive from device.
-func (c *Client) MonthlyLog(ch uint, from, to time.Time) (l *ChannelLog, err error) {
+func (c *Client) MonthlyLog(ch uint, from, to time.Time) (*ChannelLog, error) {
 	start := sysTime(time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, from.Location()))
 	end := sysTime(time.Date(to.Year(), to.Month()+1, 1, 0, 0, 0, 0, to.Location()))
-	l, err = c.valuesLog(Monthly, ch, start, end)
+	l, err := c.valuesLog(Monthly, ch, start, end)
 	if err != nil {
-		return
+		return nil, err
 	}
 	l.Type = Monthly
-	return
+	return l, nil
 }
 
 // LineTest starts sensor test procedure.
 // This command suppress counting up to 200ms which can affect counting results.
 // See documentation for testing stand and bitmask result meaning.
-func (c *Client) LineTest(chs ...uint) (res uint32, err error) {
-	if err = validateChannels(chs...); err != nil {
-		return
+func (c *Client) LineTest(chs ...uint) (uint32, error) {
+	if err := validateChannels(chs...); err != nil {
+		return 0, err
 	}
 	wMask := makeMask(chs...)
 	data, err := c.command(fnLineTest, func() []byte {
@@ -507,17 +510,16 @@ func (c *Client) LineTest(chs ...uint) (res uint32, err error) {
 		return rv
 	})
 	if err != nil {
-		return
+		return 0, err
 	}
-	res = binary.LittleEndian.Uint32(data)
-	return
+	return binary.LittleEndian.Uint32(data), nil
 }
 
 // InputTest retrieves sensor state for channels.
 // Returns a bitmask where 0s represent shorted sensors for a channel.
-func (c *Client) InputTest(chs ...uint) (res uint32, err error) {
-	if err = validateChannels(chs...); err != nil {
-		return
+func (c *Client) InputTest(chs ...uint) (uint32, error) {
+	if err := validateChannels(chs...); err != nil {
+		return 0, err
 	}
 	wMask := makeMask(chs...)
 	data, err := c.command(fnInputTest, func() []byte {
@@ -526,10 +528,9 @@ func (c *Client) InputTest(chs ...uint) (res uint32, err error) {
 		return rv
 	})
 	if err != nil {
-		return
+		return 0, err
 	}
-	res = binary.LittleEndian.Uint32(data)
-	return
+	return binary.LittleEndian.Uint32(data), nil
 }
 
 // id generator. Just adds a 1 to the next id.
@@ -540,7 +541,7 @@ func (c *Client) nextId() uint16 {
 
 // command encodes frame, sends to device, receives, decodes and validates responses.
 // Request and response message pattern  [address, function, length, payload, id, crc]
-func (c *Client) command(cmd byte, payload func() []byte) (resp []byte, err error) {
+func (c *Client) command(cmd byte, payload func() []byte) ([]byte, error) {
 	var b bytes.Buffer
 	_ = binary.Write(&b, binary.BigEndian, c.address)
 	_ = b.WriteByte(cmd)
@@ -551,98 +552,99 @@ func (c *Client) command(cmd byte, payload func() []byte) (resp []byte, err erro
 	req := b.Bytes()
 	req[5] = byte(ln + minFrameLen)
 
-	if err = c.writeMessage(req); err != nil {
-		return
+	if err := c.writeMessage(req); err != nil {
+		return nil, err
 	}
 
 	data, err := c.readMessage()
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	if data[4] != cmd {
 		err = fmt.Errorf("worng function in response")
-		return
+		return nil, err
 	}
 	ln = int(data[5]) - minFrameLen
-	resp = data[6 : 6+ln]
-	return
+	return data[6 : 6+ln], nil
 }
 
 // prepares message and sends it to a device.
-func (c *Client) writeMessage(request []byte) (err error) {
+func (c *Client) writeMessage(request []byte) error {
 	var check crc
 	check.reset()
 	check.update(request)
-	if err = c.conn.prepareWrite(); err != nil {
-		return
+	if err := c.conn.PrepareWrite(); err != nil {
+		return err
 	}
-	if _, err = c.conn.write(request); err != nil {
-		return
-	}
-
-	if err = binary.Write(&c.conn.w, binary.LittleEndian, check); err != nil {
-		return
+	if _, err := c.conn.Write(request); err != nil {
+		return err
 	}
 
-	err = c.conn.flush()
+	if err := binary.Write(c.conn, binary.LittleEndian, check); err != nil {
+		return err
+	}
+
+	err := c.conn.Flush()
 	if err == nil {
-		c.conn.logRequest()
+		c.conn.LogRequest()
 	}
-	return
+	return nil
 }
 
 // reads and validates incoming message.
-func (c *Client) readMessage() (response []byte, err error) {
-	defer func() {
-		if err == nil {
-			c.conn.logResponse()
-		}
-	}()
-	for {
-		if err = c.conn.prepareRead(); err != nil {
-			return
-		}
-		var cl = 6
-		response = make([]byte, cl)
-		if _, err = c.conn.read(response); err != nil {
-			return
-		}
-		n := int(response[cl-1]) - cl
-		response = append(response[:cl], make([]byte, n)...)
+func (c *Client) readMessage() ([]byte, error) {
+	rv, err := func(c *Client) ([]byte, error) {
+		for {
+			if err := c.conn.PrepareRead(); err != nil {
+				return nil, err
+			}
+			var cl = 6
+			response := make([]byte, cl)
+			if _, err := c.conn.Read(response); err != nil {
+				return nil, err
+			}
+			n := int(response[cl-1]) - cl
+			response = append(response[:cl], make([]byte, n)...)
 
-		if _, err = c.conn.read(response[cl:]); err != nil {
-			return
-		}
+			if _, err := c.conn.Read(response[cl:]); err != nil {
+				return nil, err
+			}
 
-		if c.address != binary.BigEndian.Uint32(response) {
-			continue
-		}
+			if c.address != binary.BigEndian.Uint32(response) {
+				continue
+			}
 
-		if err = checkCrc(response); err != nil {
-			return
+			if err := checkCrc(response); err != nil {
+				return nil, err
+			}
+			if response[4] == fnError {
+				return nil, &ProtocolError{ErrorCode(response[6])}
+			}
+			return response, nil
 		}
-		if response[4] == fnError {
-			err = &ProtocolError{ErrorCode(response[6])}
-		}
-		return response, err
+	}(c)
+
+	if err == nil {
+		c.conn.LogResponse()
 	}
+	return rv, err
 }
 
 // crc16 check.
-func checkCrc(response []byte) (err error) {
+func checkCrc(response []byte) error {
 	ln := len(response) - 2
 	if ln <= 0 {
-		return ToShort
+		return ErrTooShort
 	}
 	var check crc
 	check.reset()
 	check.update(response[:ln])
 	tst := crc(binary.LittleEndian.Uint16(response[ln:]))
 	if tst != check {
-		err = CRC
+		return ErrCRC
 	}
-	return
+	return nil
 }
 
 type crc uint16

@@ -102,9 +102,9 @@ func (e *ProtocolError) Error() string {
 	}
 }
 
-var CRC = errors.New("crc fail")
-var ToShort = errors.New("value too short")
-var WriteFail = errors.New("write failed")
+var ErrCRC = errors.New("crc fail")
+var ErrTooShort = errors.New("value too short")
+var ErrWriteFail = errors.New("write failed")
 
 // configuration param encoded name.
 type configParam uint16
@@ -125,7 +125,7 @@ type sysTime time.Time
 
 func (t *sysTime) UnmarshalBinary(data []byte) error {
 	if len(data) < 6 {
-		return ToShort
+		return ErrTooShort
 	}
 	*t = sysTime(time.Date(2000+int(data[0]),
 		time.Month(data[1]),
@@ -188,28 +188,28 @@ type ChannelLog struct {
 	Values []float32
 }
 
-func (l *ChannelLog) UnmarshalBinary(data []byte) (err error) {
+func (l *ChannelLog) UnmarshalBinary(data []byte) error {
 	if len(data) < minFrameLen {
-		return ToShort
+		return ErrTooShort
 	}
 	b := bytes.NewBuffer(data)
 	var id uint32
-	if err = binary.Read(b, binary.LittleEndian, &id); err != nil {
-		return
+	if err := binary.Read(b, binary.LittleEndian, &id); err != nil {
+		return err
 	}
 	l.Id = uint(id)
 
 	var t sysTime
-	if err = t.UnmarshalBinary(b.Next(6)); err != nil {
-		return
+	if err := t.UnmarshalBinary(b.Next(6)); err != nil {
+		return err
 	}
 	l.Start = time.Time(t)
 	var cur float32
 	for b.Len() > 0 {
-		if err = binary.Read(b, binary.LittleEndian, &cur); err != nil {
+		if err := binary.Read(b, binary.LittleEndian, &cur); err != nil {
 			return err
 		}
 		l.Values = append(l.Values, cur)
 	}
-	return
+	return nil
 }

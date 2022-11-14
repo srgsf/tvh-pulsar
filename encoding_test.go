@@ -53,7 +53,7 @@ func TestSysTimeUnmarshalFail(t *testing.T) {
 	if err == nil {
 		t.Error("unmarshal input validation failed.")
 	}
-	if err != ToShort {
+	if err != ErrTooShort {
 		t.Errorf("unmarshal input validation failed. Wrong error is returned. %v", err)
 	}
 }
@@ -83,7 +83,7 @@ func TestChanLogUnmarshalFail(t *testing.T) {
 	if err == nil {
 		t.Error("unmarshal input validation failed.")
 	}
-	if err != ToShort {
+	if err != ErrTooShort {
 		t.Errorf("unmarshal input validation failed. Wrong error is returned. %v", err)
 	}
 }
