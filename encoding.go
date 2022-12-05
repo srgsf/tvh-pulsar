@@ -104,6 +104,7 @@ func (e *ProtocolError) Error() string {
 
 var ErrCRC = errors.New("crc fail")
 var ErrTooShort = errors.New("value too short")
+var ErrInvalidFrame = errors.New("invalid frame received")
 var ErrWriteFail = errors.New("write failed")
 
 // configuration param encoded name.
@@ -134,7 +135,7 @@ func (t *sysTime) UnmarshalBinary(data []byte) error {
 		int(data[4]),
 		int(data[5]),
 		0,
-		time.Local,
+		time.UTC,
 	))
 	return nil
 }

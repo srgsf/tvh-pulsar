@@ -89,7 +89,7 @@ func TestSysTime(t *testing.T) {
 		t.Error(err)
 	}
 
-	expTm := time.Date(2022, time.September, 8, 00, 47, 10, 00, time.Local)
+	expTm := time.Date(2022, time.September, 8, 00, 47, 10, 00, time.UTC)
 	if expTm != tm {
 		t.Error("response decoding failed")
 	}
@@ -273,7 +273,7 @@ func TestHourlyLog(t *testing.T) {
 	if l.Id != 1 {
 		t.Error("response decoding failed, Id field.")
 	}
-	if l.Start != time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), 00, 00, 00, time.Local) {
+	if l.Start != time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), 00, 00, 00, time.UTC) {
 		t.Error("response decoding failed, Start field.")
 	}
 	if len(l.Values) != 25 {
@@ -317,7 +317,7 @@ func TestDailyLog(t *testing.T) {
 	if l.Id != 1 {
 		t.Error("response decoding failed, Id field.")
 	}
-	if l.Start != time.Date(from.Year(), from.Month(), from.Day(), 00, 00, 00, 00, time.Local) {
+	if l.Start != time.Date(from.Year(), from.Month(), from.Day(), 00, 00, 00, 00, time.UTC) {
 		t.Error("response decoding failed, Start field.")
 	}
 	if len(l.Values) != 25 {
@@ -360,7 +360,7 @@ func TestMonthlyLog2(t *testing.T) {
 	if l.Id != 1 {
 		t.Error("response decoding failed, Id field.")
 	}
-	if l.Start != time.Date(from.Year(), from.Month(), 1, 0, 00, 00, 00, time.Local) {
+	if l.Start != time.Date(from.Year(), from.Month(), 1, 0, 00, 00, 00, time.UTC) {
 		t.Error("response decoding failed, Start field.")
 	}
 	if len(l.Values) != 25 {

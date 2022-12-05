@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var tm = time.Date(2022, 2, 3, 4, 5, 6, 0, time.Local)
+var tm = time.Date(2022, 2, 3, 4, 5, 6, 0, time.UTC)
 var bt = []byte{22, 2, 3, 4, 5, 6}
 var chanLogPayload = []byte{
 	0x01, 0x00, 0x00, 0x00, 0x16, 0x09, 0x05, 0x0D, 0x00, 0x00, 0x06, 0x89, 0x2C, 0x44, 0x06, 0x89,
@@ -67,7 +67,7 @@ func TestChanLogUnmarshal(t *testing.T) {
 	if len(res.Values) != 25 {
 		t.Errorf("wrong number of log values. Expected %d, got %d", 25, len(res.Values))
 	}
-	start := time.Date(2022, 9, 5, 13, 0, 0, 0, time.Local)
+	start := time.Date(2022, 9, 5, 13, 0, 0, 0, time.UTC)
 	if start != res.Start {
 		t.Errorf("wrong start date. Expected %v got %v", start, res.Start)
 	}

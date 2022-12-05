@@ -604,7 +604,11 @@ func (c *Client) readMessage() ([]byte, error) {
 			if _, err := c.conn.Read(response); err != nil {
 				return nil, err
 			}
+
 			n := int(response[cl-1]) - cl
+			if n < 5 {
+				return nil, ErrInvalidFrame
+			}
 			response = append(response[:cl], make([]byte, n)...)
 
 			if _, err := c.conn.Read(response[cl:]); err != nil {
